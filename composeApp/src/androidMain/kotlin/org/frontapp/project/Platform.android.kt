@@ -1,5 +1,6 @@
 package org.frontapp.project
 
+import android.R
 import android.os.Build
 
 class AndroidPlatform : Platform {
@@ -7,3 +8,15 @@ class AndroidPlatform : Platform {
 }
 
 actual fun getPlatform(): Platform = AndroidPlatform()
+
+
+/*class implMulti{
+    fun multi() {
+        val a: Int = 1;
+        val b: Int = 1;
+        return a * b;
+    }
+}
+
+
+actual fun multiplicacion(): Int = implMulti().multi()*/

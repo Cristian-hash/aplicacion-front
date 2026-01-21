@@ -594,20 +594,53 @@ fun AdminScreen(
             // CONTENT AREA
             Box(modifier = Modifier.weight(1f)) {
                 if (mode == "camera") {
-                    // CAMERA MODE
+                    // === MODO CÁMARA REAL (NUEVO) ===
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                        // Fake Camera UI
+
+                        // 1. LA CÁMARA (El ojo del robot)
+                        CameraPreview(
+                            reductionFactor = 1f,
+                            onCameraStatusChanged = { active, denied ->
+                                // Aquí puedes manejar permisos si quieres
+                            },
+                            onQrDetected = { qrCode ->
+                                // Lógica: Buscar usuario en la base de datos local
+                                val userFound = db.find { it.dni == qrCode }
+
+                                if (userFound != null) {
+                                    // SI EXISTE: Registramos entrada
+                                    // IMPORTANTE: Asegúrate de tener la función 'processEntry' creada.
+                                    // Si te marca error en rojo, usa 'simulateScan()' por mientras.
+                                    processEntry(userFound, "QR")
+                                } else {
+                                    // NO EXISTE: Registramos error o desconocido
+                                    processEntry(User(0, "Desconocido", qrCode, "", "Sin Registro", ""), "QR-Error")
+                                }
+                            }
+                        )
+
+                        // 2. EL MARCO (Reciclado de tu diseño anterior para que se vea bien)
                         Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) {
                             Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center))
                         }
-                        Column(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Escanea QR de asistente", color = Color.White.copy(0.8f), modifier = Modifier.background(Color.Black.copy(0.5f), CircleShape).padding(horizontal = 16.dp, vertical = 8.dp))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { simulateScan() }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(0.2f))) {
-                                Text("[ Simular Scan ]")
-                            }
+
+                        // 3. TEXTO DE AYUDA
+                        Column(
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                "Apunta al código QR",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .background(Color.Black.copy(0.6f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
                         }
                     }
+                    // === AQUÍ TERMINA EL MODO CÁMARA ===
+
                 } else {
                     // MANUAL MODE
                     Column(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader).padding(16.dp)) {

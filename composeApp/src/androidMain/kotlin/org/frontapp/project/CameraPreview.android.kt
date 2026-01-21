@@ -178,17 +178,6 @@ actual fun CameraPreview(
     }
 }
 
-// Mensaje cuando no hay permiso
-@Composable
-fun CameraNoAccess() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Cámara no disponible. Revisa los permisos.", color = Color.White, fontSize = 14.sp)
-    }
-}
-
 // Extensión necesaria para encontrar la Actividad desde el Contexto
 fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this

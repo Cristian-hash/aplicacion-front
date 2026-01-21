@@ -4,5 +4,7 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+    <string>Necesitamos acceso a la cámara para escanear tu ticket de entrada.</string>
 </dict>
 </plist>

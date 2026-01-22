@@ -12,7 +12,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         initNetworkMonitor(this)
-
         setContent {
             App()
         }

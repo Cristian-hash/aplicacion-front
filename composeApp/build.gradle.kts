@@ -70,6 +70,7 @@ kotlin {
             implementation(compose.materialIconsExtended)
             implementation(libs.coil.network.ktor)
             implementation(libs.jetbrains.compose.foundation)
+            implementation(libs.kotlinx.datetime)
 
         }
 

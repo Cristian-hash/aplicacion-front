@@ -35,7 +35,8 @@ data class RegisterResultResponse(
 data class AsistenciaResponse(
     val fullName: String,
     val dni: String,
-    val status: String? = "INGRESO" // Agregamos status para el historial
+    val status: String? = "INGRESO", // Agregamos status para el historial
+    val createdAt: String? = null    // Fecha de registro
 )
 
 // ==========================================

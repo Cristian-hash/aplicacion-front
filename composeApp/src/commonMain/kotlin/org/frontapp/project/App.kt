@@ -96,6 +96,10 @@ fun AdminScreen(
     var feedback by remember { mutableStateOf<Pair<String, String>?>(null) }
     var isProcessingQr by remember { mutableStateOf(false) }
 
+    // ESTADOS PARA EDICIÓN
+    var editingUser by remember { mutableStateOf<User?>(null) }
+    var editDniVal by remember { mutableStateOf("") }
+
     val scaffoldState = rememberBottomSheetScaffoldState()
 
     fun refreshHistoryFromServer() {
@@ -135,6 +139,26 @@ fun AdminScreen(
         }
         manualDni = ""
         searchText = ""
+    }
+
+    fun saveUserDniCorrection() {
+        editingUser?.let { user ->
+            scope.launch {
+                if (isOnline && editDniVal.length == 8) {
+                    val exito = EduTecApi.corregirUsuario(user.id, editDniVal)
+                    if (exito) {
+                        val index = db.indexOfFirst { it.id == user.id }
+                        if (index != -1) {
+                            db[index] = db[index].copy(dni = editDniVal)
+                        }
+                        feedback = "success" to "DNI CORREGIDO"
+                        editingUser = null
+                    } else {
+                        feedback = "error" to "ERROR AL CORREGIR"
+                    }
+                }
+            }
+        }
     }
 
     LaunchedEffect(feedback) { 
@@ -195,18 +219,13 @@ fun AdminScreen(
                                 onCameraStatusChanged = { _, _ -> },
                                 onQrDetected = { qrContent ->
                                     if (isProcessingQr) return@CameraPreview
-                                    
                                     var extractedDni: String? = null
                                     var extractedName = "Invitado"
-
-                                    // VALIDADOR DE QR
                                     try {
-                                        // 1. Intentar parsear JSON esperado
                                         val data = Json.decodeFromString<AsistenciaRegisterRequest>(qrContent)
                                         extractedDni = data.dni
                                         extractedName = data.fullName
                                     } catch (e: Exception) {
-                                        // 2. Si no es JSON, verificar si es un DNI puro (exacto 8 dígitos)
                                         if (qrContent.length == 8 && qrContent.all { it.isDigit() }) {
                                             extractedDni = qrContent
                                         }
@@ -218,7 +237,6 @@ fun AdminScreen(
                                         if (userFound != null) processEntry(userFound, "QR")
                                         else processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
                                     } else {
-                                        // 3. QR NO RECONOCIDO (Evitar registrar basura)
                                         isProcessingQr = true
                                         feedback = "error" to "QR NO RECONOCIDO"
                                     }
@@ -227,11 +245,17 @@ fun AdminScreen(
                             Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) { Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center)) }
                         }
                     } else {
-                        // Modo manual...
+                        // Modo manual
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }
-                                Button(onClick = { manualTab = "search" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="search") EduTheme.BlueAction else Color.Transparent)) { Text("Buscar", fontSize = 12.sp) }
+                                Button(onClick = { manualTab = "search" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="search") EduTheme.BlueAction else Color.Transparent)) { 
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp), tint = Color.White)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Corregir / Buscar", fontSize = 12.sp) 
+                                    }
+                                }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             if (manualTab == "quick") {
@@ -272,9 +296,37 @@ fun AdminScreen(
                                         val results = if(searchText.isNotEmpty()) db.filter { it.dni.contains(searchText) } else emptyList()
                                         items(results) { user ->
                                             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(bottom = 8.dp)) {
-                                                Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                    Column(modifier = Modifier.weight(1f)) { Text(user.name, color = Color.White, fontWeight = FontWeight.Bold); Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp) }
-                                                    Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) { Text("Entrar", fontSize = 10.sp) }
+                                                if (editingUser?.id == user.id) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Text("CORREGIR DNI", color = EduTheme.BlueAction, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                        OutlinedTextField(
+                                                            value = editDniVal,
+                                                            onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) editDniVal = it },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
+                                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                                        )
+                                                        Row(modifier = Modifier.padding(top = 8.dp)) {
+                                                            Button(onClick = { editingUser = null }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) { Text("Cancelar") }
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Button(onClick = { saveUserDniCorrection() }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = EduTheme.Success)) { Text("Guardar") }
+                                                        }
+                                                    }
+                                                } else {
+                                                    Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                                        Column(modifier = Modifier.weight(1f)) { 
+                                                            Text(user.name, color = Color.White, fontWeight = FontWeight.Bold)
+                                                            Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp) 
+                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            IconButton(onClick = { editingUser = user; editDniVal = user.dni }) {
+                                                                Icon(Icons.Default.Edit, "Corregir", tint = Color.LightGray, modifier = Modifier.size(24.dp))
+                                                            }
+                                                            /*Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) {
+                                                                Text("Entrar", fontSize = 10.sp) 
+                                                            }*/
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

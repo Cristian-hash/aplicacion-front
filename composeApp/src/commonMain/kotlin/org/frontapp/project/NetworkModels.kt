@@ -4,62 +4,69 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // ==========================================
-// 1. PARA EL INGRESO (AsistenciaController)
+// 1. DTOs PARA EL REGISTRO (AsistenciaController)
 // ==========================================
 
-// Para el "Ingreso Directo" (Manual) -> POST /register-by-dni
+// Backend: AsistenciaDniDto
+// Uso: Para el "Ingreso Directo" (Manual) -> POST /register-by-dni
 @Serializable
 data class AsistenciaDniRequest(
     val dni: String
 )
 
-// Para el "Escáner QR" -> POST /register
+// Backend: AsistenciaRegisterDto
+// Uso: Para el "Escáner QR" -> POST /register
 @Serializable
 data class AsistenciaRegisterRequest(
     val dni: String,
     val fullName: String
 )
 
-// Lo que recibimos en el Historial -> GET /history
+// Backend: AsistenciaViewDto
+// Uso: Lo que recibimos en el Historial -> GET /history
 @Serializable
 data class AsistenciaResponse(
     val fullName: String,
     val dni: String
-    // Nota: Si tu backend agrega 'createdAt' en el futuro, lo pondremos aquí.
 )
 
 // ==========================================
-// 2. PARA EL BUSCADOR (RegistrationController)
+// 2. DTOs PARA GESTIÓN DE USUARIOS (RegistrationController)
 // ==========================================
 
-// Para la lista de búsqueda -> GET /get-all-registrations
+// Backend: RegistrationViewDto
+// Uso: Para llenar la lista del Buscador -> GET /get-all-registrations
 @Serializable
 data class UserResponse(
-    @SerialName("_id") val id: String, // Mapeamos '_id' de Mongo a 'id'
+    // IMPORTANTE: Tu backend envía "_id" (con guion bajo por Mongo).
+    // Aquí le decimos: "Cuando leas '_id', guárdalo en la variable 'id'".
+    @SerialName("_id") val id: String,
     val fullName: String,
     val dni: String
 )
 
-// Para corregir datos (Zona 3) -> PUT /edit-register/{id}
+// Backend: RegistrationUpdateDto
+// Uso: Para corregir datos (Zona 3) -> PUT /edit-register/{id}
 @Serializable
 data class UserUpdateRequest(
-    val dni: String? = null,
     val fullName: String? = null,
     val email: String? = null,
     val phone: String? = null,
+    val dni: String? = null,
     val company: String? = null,
     val position: String? = null
 )
 
 // ==========================================
-// 3. MANEJO DE ERRORES
+// 3. MANEJO DE ERRORES (GlobalExceptionHandler)
 // ==========================================
 
-// Para leer los mensajes de error de tu GlobalExceptionHandler
+// Backend: ErrorResponse
+// Uso: Para leer los mensajes de error del servidor (ej: "El usuario no existe")
 @Serializable
 data class ApiErrorResponse(
     val status: Int,
     val error: String,
-    val message: String, // Este es el texto que mostraremos en la alerta roja 🔴
+    val message: String, // Este es el texto que mostraremos en la alerta ROJA 🔴
     val path: String
 )

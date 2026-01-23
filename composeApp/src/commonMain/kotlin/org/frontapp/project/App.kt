@@ -96,7 +96,6 @@ fun AdminScreen(
     var feedback by remember { mutableStateOf<Pair<String, String>?>(null) }
     var isProcessingQr by remember { mutableStateOf(false) }
 
-    // ESTADOS PARA EDICIÓN
     var editingUser by remember { mutableStateOf<User?>(null) }
     var editDniVal by remember { mutableStateOf("") }
 
@@ -125,17 +124,27 @@ fun AdminScreen(
         refreshHistoryFromServer()
     }
 
+    // LÓGICA DE REGISTRO CORREGIDA PARA MANEJAR RESULT
     fun processEntry(user: User, method: String) {
         val isReentry = scans.any { it.dni == user.dni }
         scope.launch {
             if (isOnline) {
-                val exito = EduTecApi.registrarPorDni(user.dni)
-                if (exito) refreshHistoryFromServer()
-                else pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Pendiente", method))
+                val result = EduTecApi.registrarPorDni(user.dni)
+                if (result.isSuccess) {
+                    refreshHistoryFromServer()
+                    feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
+                } else {
+                    val errorMsg = result.exceptionOrNull()?.message ?: "ERROR DE CONEXIÓN"
+                    feedback = "error" to errorMsg
+                    // Si el error NO es que el usuario no existe, lo mandamos a la cola pendiente
+                    if (errorMsg != "EL USUARIO NO EXISTE") {
+                        pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Pendiente", method))
+                    }
+                }
             } else {
                 pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Pendiente", method))
+                feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
             }
-            feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
         }
         manualDni = ""
         searchText = ""
@@ -297,6 +306,7 @@ fun AdminScreen(
                                         items(results) { user ->
                                             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(bottom = 8.dp)) {
                                                 if (editingUser?.id == user.id) {
+                                                    // VISTA DE EDICIÓN
                                                     Column(modifier = Modifier.padding(12.dp)) {
                                                         Text("CORREGIR DNI", color = EduTheme.BlueAction, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                                         OutlinedTextField(
@@ -313,6 +323,7 @@ fun AdminScreen(
                                                         }
                                                     }
                                                 } else {
+                                                    // VISTA NORMAL
                                                     Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                                         Column(modifier = Modifier.weight(1f)) { 
                                                             Text(user.name, color = Color.White, fontWeight = FontWeight.Bold)
@@ -322,9 +333,9 @@ fun AdminScreen(
                                                             IconButton(onClick = { editingUser = user; editDniVal = user.dni }) {
                                                                 Icon(Icons.Default.Edit, "Corregir", tint = Color.LightGray, modifier = Modifier.size(24.dp))
                                                             }
-                                                            /*Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) {
+                                                            Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) { 
                                                                 Text("Entrar", fontSize = 10.sp) 
-                                                            }*/
+                                                            }
                                                         }
                                                     }
                                                 }

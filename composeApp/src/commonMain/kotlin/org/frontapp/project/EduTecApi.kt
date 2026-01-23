@@ -22,69 +22,45 @@ object EduTecApi {
         }
     }
 
-    // --- A. REGISTRAR ASISTENCIA (QR) ---
-    // Se usa el endpoint /register que pide DNI y Nombre Completo
-    suspend fun registrarPorQr(dni: String, fullName: String): Boolean {
-        return try {
-            val response = client.post("$BASE_URL/register") {
-                contentType(ContentType.Application.Json)
-                setBody(AsistenciaRegisterRequest(dni, fullName))
-            }
-            // Aceptamos 201 Created o 200 OK
-            response.status == HttpStatusCode.Created || response.status == HttpStatusCode.OK
-        } catch (e: Exception) {
-            println("❌ Error en registrarPorQr: ${e.message}")
-            false
-        }
-    }
-
-    // --- B. REGISTRAR ASISTENCIA (DNI MANUAL) ---
-    // Se usa el endpoint /register-by-dni que solo pide el DNI
-    suspend fun registrarPorDni(dni: String): Boolean {
+    // --- REGISTRAR POR DNI (El que usamos para QR y Manual) ---
+    suspend fun registrarPorDni(dni: String): Result<Boolean> {
         return try {
             val response = client.post("$BASE_URL/register-by-dni") {
                 contentType(ContentType.Application.Json)
                 setBody(AsistenciaDniRequest(dni))
             }
-            // Aceptamos 201 Created o 200 OK
-            response.status == HttpStatusCode.Created || response.status == HttpStatusCode.OK
+            
+            when (response.status) {
+                HttpStatusCode.Created, HttpStatusCode.OK -> Result.success(true)
+                HttpStatusCode.NotFound -> {
+                    // El usuario no existe en la BD de Mongo
+                    Result.failure(Exception("EL USUARIO NO EXISTE"))
+                }
+                else -> Result.failure(Exception("ERROR DE SERVIDOR"))
+            }
         } catch (e: Exception) {
-            println("❌ Error en registrarPorDni: ${e.message}")
-            false
+            Result.failure(e)
         }
     }
 
-    // --- C. OBTENER HISTORIAL (EN VIVO) ---
     suspend fun obtenerHistorial(): List<AsistenciaResponse> {
         return try {
             val response = client.get("$BASE_URL/history")
-            if (response.status == HttpStatusCode.OK) {
-                response.body()
-            } else {
-                emptyList()
-            }
+            if (response.status == HttpStatusCode.OK) response.body() else emptyList()
         } catch (e: Exception) {
-            println("❌ Error obteniendo historial: ${e.message}")
             emptyList()
         }
     }
 
-    // --- D. DESCARGAR BASE DE DATOS DE USUARIOS ---
     suspend fun obtenerUsuarios(): List<UserResponse> {
         return try {
             val response = client.get("$BASE_URL/get-all-registrations")
-            if (response.status == HttpStatusCode.OK) {
-                response.body()
-            } else {
-                emptyList()
-            }
+            if (response.status == HttpStatusCode.OK) response.body() else emptyList()
         } catch (e: Exception) {
-            println("❌ Error obteniendo usuarios: ${e.message}")
             emptyList()
         }
     }
 
-    // --- E. CORREGIR USUARIO ---
     suspend fun corregirUsuario(id: String, dniNuevo: String): Boolean {
         return try {
             val response = client.put("$BASE_URL/edit-register/$id") {
@@ -93,7 +69,6 @@ object EduTecApi {
             }
             response.status == HttpStatusCode.OK
         } catch (e: Exception) {
-            println("❌ Error corrigiendo usuario: ${e.message}")
             false
         }
     }

@@ -330,7 +330,7 @@ fun AdminScreen(
                     IconButton(
                         onClick = onNavigateToHistory,
                         modifier = Modifier.background(Color.White.copy(0.1f), CircleShape)
-                    ) { Icon(Icons.Default.History, null, tint = Color.White) }
+                    ) { Icon(Icons.Default.Group, null, tint = Color.White) }
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
                         onClick = onBack,

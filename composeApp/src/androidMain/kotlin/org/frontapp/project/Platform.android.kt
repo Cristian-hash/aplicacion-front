@@ -1,22 +1,13 @@
 package org.frontapp.project
 
-import android.R
-import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.Composable
 
-class AndroidPlatform : Platform {
-    override val name: String = "Android ${Build.VERSION.SDK_INT}"
+@Composable
+actual fun BackHandler(enabled: Boolean, onBack: () -> Unit) {
+    BackHandler(enabled = enabled, onBack = onBack)
 }
 
-actual fun getPlatform(): Platform = AndroidPlatform()
-
-
-/*class implMulti{
-    fun multi() {
-        val a: Int = 1;
-        val b: Int = 1;
-        return a * b;
-    }
+actual fun getPlatform(): Platform {
+    TODO("Not yet implemented")
 }
-
-
-actual fun multiplicacion(): Int = implMulti().multi()*/

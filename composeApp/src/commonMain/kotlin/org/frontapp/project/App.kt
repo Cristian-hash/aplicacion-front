@@ -35,6 +35,10 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.Instant
 
+// Manejo del botón atrás nativo
+@Composable
+expect fun BackHandler(enabled: Boolean = true, onBack: () -> Unit)
+
 // ==================================================================
 // 1. SISTEMA DE DISEÑO MEJORADO
 // ==================================================================
@@ -47,7 +51,7 @@ object EduTheme {
     val CardBg = Color(0xFFFFFFFF)
     val Success = Color(0xFF2E7D32)
     val Warning = Color(0xFFF57C00)
-    val WarningBg = Color(0xFFFFF9E6) // Amarillo pastel más suave
+    val WarningBg = Color(0xFFFFF9E6)
     val BlueAction = Color(0xFF1565C0)
     val Error = Color(0xFFC62828)
     val TextMain = Color(0xFF212121)
@@ -69,6 +73,9 @@ fun HistoryScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var historyList by remember { mutableStateOf<List<AsistenciaResponse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+
+    // Interceptar botón atrás físico
+    BackHandler { onBack() }
 
     fun formatPeruTime(isoString: String?): String {
         if (isoString == null) return "--:--"
@@ -228,6 +235,9 @@ fun AdminScreen(
     val networkMonitor = remember { getNetworkMonitor() }
     val isOnline by networkMonitor.isConnected.collectAsState(initial = false)
 
+    // Interceptar botón atrás físico
+    BackHandler { onBack() }
+
     var mode by remember { mutableStateOf("camera") }
     var manualTab by remember { mutableStateOf("quick") }
     var manualDni by remember { mutableStateOf("") }
@@ -292,7 +302,7 @@ fun AdminScreen(
 
     LaunchedEffect(feedback) { 
         if (feedback != null) { 
-            delay(2500) // Un poco más de tiempo para leer el mensaje
+            delay(2500)
             feedback = null 
             isProcessing = false
         } 
@@ -300,7 +310,6 @@ fun AdminScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader)) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            // Header Minimalista
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp), 
                 horizontalArrangement = Arrangement.SpaceBetween, 
@@ -483,6 +492,7 @@ fun AdminScreen(
                                                     Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp)
                                                 }
                                                 IconButton(onClick = { editingUser = user; editDniVal = user.dni }) { Icon(Icons.Default.Edit, null, tint = Color.LightGray, modifier = Modifier.size(18.dp)) }
+                                                Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), shape = RoundedCornerShape(8.dp)) { Text("Entrar", fontSize = 11.sp) }
                                             }
                                         }
                                     }
@@ -524,7 +534,6 @@ fun AdminScreen(
             }
         }
 
-        // Overlay de Feedback Responsivo MEJORADO
         if (feedback != null) {
             val (type, msg) = feedback!!
             val isError = type == "error"

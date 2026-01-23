@@ -492,7 +492,6 @@ fun AdminScreen(
                                                     Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp)
                                                 }
                                                 IconButton(onClick = { editingUser = user; editDniVal = user.dni }) { Icon(Icons.Default.Edit, null, tint = Color.LightGray, modifier = Modifier.size(18.dp)) }
-                                                Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), shape = RoundedCornerShape(8.dp)) { Text("Entrar", fontSize = 11.sp) }
                                             }
                                         }
                                     }
@@ -620,7 +619,7 @@ fun AdminScreen(
 @Composable
 fun HomeScreen(onNavigate: (String) -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.White).statusBarsPadding()) {
-        Box(modifier = Modifier.offset(x = 100.dp, y = (-100).dp).size(400.dp).background(EduTheme.BrandRed.copy(0.05f), CircleShape).blur(80.dp))
+        Box(modifier = Modifier.offset(x = 100.dp, y = (-100).dp).size(400.dp).background(EduTheme.BlueAction.copy(0.05f), CircleShape).blur(80.dp))
         
         Column(
             modifier = Modifier.fillMaxSize().padding(32.dp),
@@ -630,10 +629,10 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             Surface(
                 modifier = Modifier.size(120.dp),
                 shape = RoundedCornerShape(30.dp),
-                color = EduTheme.BrandRed.copy(0.1f)
+                color = EduTheme.BlueAction.copy(0.1f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(60.dp), tint = EduTheme.BrandRed)
+                    Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(60.dp), tint = EduTheme.BlueAction)
                 }
             }
             

@@ -40,17 +40,14 @@ import kotlinx.datetime.Instant
 // ==================================================================
 object EduTheme {
     val BrandRed = Color(0xFFCF0A2C)
-    val BrandRedDark = Color(0xFF990000)
     val BrandBlack = Color(0xFF1A1A1A)
     val DarkHeader = Color(0xFF121212)
     val White = Color(0xFFFFFFFF)
     val GrayBg = Color(0xFFF8F9FA)
     val CardBg = Color(0xFFFFFFFF)
     val Success = Color(0xFF2E7D32)
-    val SuccessBg = Color(0xFFE8F5E9)
     val Warning = Color(0xFFF57C00)
-    val WarningText = Color(0xFF856404)
-    val WarningBg = Color(0xFFFFF3CD)
+    val WarningBg = Color(0xFFFFF9E6) // Amarillo pastel más suave
     val BlueAction = Color(0xFF1565C0)
     val Error = Color(0xFFC62828)
     val TextMain = Color(0xFF212121)
@@ -112,7 +109,8 @@ fun HistoryScreen(onBack: () -> Unit) {
                     containerColor = EduTheme.DarkHeader, 
                     titleContentColor = Color.White, 
                     navigationIconContentColor = Color.White
-                )
+                ),
+                windowInsets = WindowInsets.statusBars
             )
         }
     ) { padding ->
@@ -133,18 +131,19 @@ fun HistoryScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        colors = CardDefaults.cardColors(containerColor = if (isReentry) EduTheme.WarningBg.copy(0.5f) else EduTheme.CardBg)
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isReentry) EduTheme.WarningBg else EduTheme.CardBg
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp).fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Avatar/Icono dinámico
                             Box(
                                 modifier = Modifier
                                     .size(50.dp)
                                     .background(
-                                        if (isReentry) EduTheme.Warning.copy(0.15f) else EduTheme.Success.copy(0.1f), 
+                                        if (isReentry) Color(0xFFFFECB3) else EduTheme.Success.copy(0.1f), 
                                         CircleShape
                                     ),
                                 contentAlignment = Alignment.Center
@@ -159,7 +158,6 @@ fun HistoryScreen(onBack: () -> Unit) {
                             
                             Spacer(modifier = Modifier.width(16.dp))
                             
-                            // Contenido central flexible
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = item.fullName,
@@ -169,7 +167,7 @@ fun HistoryScreen(onBack: () -> Unit) {
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = "DNI: ${item.dni}",
@@ -180,12 +178,12 @@ fun HistoryScreen(onBack: () -> Unit) {
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Surface(
                                             color = EduTheme.Warning,
-                                            shape = RoundedCornerShape(4.dp)
+                                            shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
                                                 "RE-IN",
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                                fontSize = 9.sp,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                fontSize = 10.sp,
                                                 fontWeight = FontWeight.Black,
                                                 color = Color.White
                                             )
@@ -196,7 +194,6 @@ fun HistoryScreen(onBack: () -> Unit) {
                             
                             Spacer(modifier = Modifier.width(8.dp))
                             
-                            // Info lateral derecha
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
                                     text = formatPeruTime(item.createdAt),
@@ -204,10 +201,10 @@ fun HistoryScreen(onBack: () -> Unit) {
                                     fontWeight = FontWeight.Bold,
                                     color = EduTheme.TextSecondary
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = if (isReentry) "DUPLICADO" else "OK",
-                                    fontSize = 10.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
                                     color = if (isReentry) EduTheme.Warning else EduTheme.Success
                                 )
@@ -266,11 +263,11 @@ fun AdminScreen(
                     val data = result.getOrNull()
                     feedback = (data?.status?.lowercase() ?: "success") to (data?.message ?: "¡BIENVENIDO!")
                 } else {
-                    val errorMsg = result.exceptionOrNull()?.message ?: "ERROR"
+                    val errorMsg = result.exceptionOrNull()?.message ?: "ERROR DE SERVIDOR"
                     feedback = "error" to errorMsg
                 }
             } else {
-                feedback = "success" to "MODO OFFLINE ACTIVADO"
+                feedback = "error" to "SIN CONEXIÓN A INTERNET"
             }
         }
     }
@@ -283,10 +280,10 @@ fun AdminScreen(
                     if (exito) {
                         val index = db.indexOfFirst { it.id == user.id }
                         if (index != -1) db[index] = db[index].copy(dni = editDniVal)
-                        feedback = "success" to "DNI CORREGIDO"
+                        feedback = "success" to "DNI CORREGIDO CORRECTAMENTE"
                         editingUser = null
                     } else {
-                        feedback = "error" to "ERROR AL GUARDAR"
+                        feedback = "error" to "ERROR AL GUARDAR CAMBIOS"
                     }
                 }
             }
@@ -295,14 +292,14 @@ fun AdminScreen(
 
     LaunchedEffect(feedback) { 
         if (feedback != null) { 
-            delay(1800)
+            delay(2500) // Un poco más de tiempo para leer el mensaje
             feedback = null 
             isProcessing = false
         } 
     }
 
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader)) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             // Header Minimalista
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp), 
@@ -330,7 +327,6 @@ fun AdminScreen(
                 }
             }
 
-            // Cuerpo Principal
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -362,14 +358,13 @@ fun AdminScreen(
                                         if (extractedDni != null) {
                                             processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
                                         } else {
-                                            feedback = "error" to "QR INVÁLIDO"
+                                            feedback = "error" to "CÓDIGO QR NO VÁLIDO"
                                         }
                                     }
                                 }
                             }
                         )
                         
-                        // Overlay Scanner
                         val scanAreaSize = minOf(maxWidth, maxHeight) * 0.7f
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Box(
@@ -377,7 +372,6 @@ fun AdminScreen(
                                     .size(scanAreaSize)
                                     .border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))
                             ) {
-                                // Línea de escaneo animada (simulada)
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -389,7 +383,6 @@ fun AdminScreen(
                         }
                     }
                 } else {
-                    // MODO MANUAL
                     Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
                         TabRow(
                             selectedTabIndex = if(manualTab == "quick") 0 else 1,
@@ -455,7 +448,6 @@ fun AdminScreen(
                                 }
                             }
                         } else {
-                            // Buscador
                             OutlinedTextField(
                                 value = searchText,
                                 onValueChange = { if(it.all {c->c.isDigit()}) searchText = it },
@@ -501,7 +493,6 @@ fun AdminScreen(
                 }
             }
             
-            // Bottom Bar
             Surface(color = EduTheme.White, shadowElevation = 8.dp) {
                 Row(modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp)) {
                     Button(
@@ -533,7 +524,7 @@ fun AdminScreen(
             }
         }
 
-        // Overlay de Feedback Responsivo
+        // Overlay de Feedback Responsivo MEJORADO
         if (feedback != null) {
             val (type, msg) = feedback!!
             val isError = type == "error"
@@ -545,47 +536,70 @@ fun AdminScreen(
             }
             
             Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.7f)).zIndex(100f).clickable { feedback = null; isProcessing = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(0.75f))
+                    .zIndex(200f)
+                    .clickable { feedback = null; isProcessing = false },
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    modifier = Modifier.fillMaxWidth(0.85f),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
                 ) {
                     Column(
-                        modifier = Modifier.padding(32.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 40.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            modifier = Modifier.size(80.dp).background(color.copy(0.1f), CircleShape),
-                            contentAlignment = Alignment.Center
+                        Surface(
+                            modifier = Modifier.size(80.dp),
+                            shape = CircleShape,
+                            color = color.copy(alpha = 0.1f)
                         ) {
-                            Icon(
-                                when {
-                                    isError -> Icons.Default.Cancel
-                                    isWarning -> Icons.Default.PriorityHigh
-                                    else -> Icons.Default.CheckCircle
-                                },
-                                null,
-                                tint = color,
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = when {
+                                        isError -> Icons.Default.Cancel
+                                        isWarning -> Icons.Default.PriorityHigh
+                                        else -> Icons.Default.CheckCircle
+                                    },
+                                    contentDescription = null,
+                                    tint = color,
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Spacer(modifier = Modifier.height(28.dp))
+                        
                         Text(
                             text = msg,
                             fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.ExtraBold,
                             textAlign = TextAlign.Center,
                             color = color,
                             lineHeight = 28.sp
                         )
+                        
                         Spacer(modifier = Modifier.height(12.dp))
+                        
                         Text(
-                            text = if(isError) "Ocurrió un problema" else if(isWarning) "Ya registrado anteriormente" else "Proceso completado",
-                            color = Color.Gray,
-                            fontSize = 13.sp
+                            text = when {
+                                isError -> "Ocurrió un error al procesar la solicitud. Intenta de nuevo."
+                                isWarning -> "Este usuario ya cuenta con un registro previo en el sistema."
+                                else -> "El ingreso ha sido registrado correctamente."
+                            },
+                            fontSize = 14.sp,
+                            color = EduTheme.TextSecondary,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 20.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -596,8 +610,7 @@ fun AdminScreen(
 
 @Composable
 fun HomeScreen(onNavigate: (String) -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(EduTheme.White)) {
-        // Círculos decorativos
+    Box(modifier = Modifier.fillMaxSize().background(EduTheme.White).statusBarsPadding()) {
         Box(modifier = Modifier.offset(x = 100.dp, y = (-100).dp).size(400.dp).background(EduTheme.BrandRed.copy(0.05f), CircleShape).blur(80.dp))
         
         Column(
@@ -655,7 +668,7 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
         
         Text(
             "v1.0.2 • Grupo Upgrade",
-            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).navigationBarsPadding(),
             fontSize = 10.sp,
             color = Color.LightGray,
             fontWeight = FontWeight.Bold

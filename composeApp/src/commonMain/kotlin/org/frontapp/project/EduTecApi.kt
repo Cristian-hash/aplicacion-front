@@ -4,6 +4,7 @@ import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
@@ -22,24 +23,44 @@ object EduTecApi {
         }
     }
 
-    // --- REGISTRAR POR DNI (El que usamos para QR y Manual) ---
-    suspend fun registrarPorDni(dni: String): Result<Boolean> {
+    // --- REGISTRAR POR DNI (Manual / Ingreso Directo) ---
+    suspend fun registrarPorDni(dni: String): Result<RegisterResultResponse> {
         return try {
             val response = client.post("$BASE_URL/register-by-dni") {
                 contentType(ContentType.Application.Json)
                 setBody(AsistenciaDniRequest(dni))
             }
-            
-            when (response.status) {
-                HttpStatusCode.Created, HttpStatusCode.OK -> Result.success(true)
-                HttpStatusCode.NotFound -> {
-                    // El usuario no existe en la BD de Mongo
-                    Result.failure(Exception("EL USUARIO NO EXISTE"))
-                }
-                else -> Result.failure(Exception("ERROR DE SERVIDOR"))
-            }
+            handleResponse(response)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    // --- REGISTRAR CON NOMBRE (QR) ---
+    suspend fun registrarConNombre(dni: String, fullName: String): Result<RegisterResultResponse> {
+        return try {
+            val response = client.post("$BASE_URL/register") {
+                contentType(ContentType.Application.Json)
+                setBody(AsistenciaRegisterRequest(dni, fullName))
+            }
+            handleResponse(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // Función auxiliar para procesar la respuesta y capturar mensajes del backend
+    private suspend fun handleResponse(response: HttpResponse): Result<RegisterResultResponse> {
+        return if (response.status.value in 200..299) {
+            Result.success(response.body())
+        } else {
+            try {
+                // Intentamos leer el JSON de error del backend (ApiErrorResponse)
+                val error: ApiErrorResponse = response.body()
+                Result.failure(Exception(error.message))
+            } catch (e: Exception) {
+                Result.failure(Exception("Error en el servidor (${response.status.value})"))
+            }
         }
     }
 

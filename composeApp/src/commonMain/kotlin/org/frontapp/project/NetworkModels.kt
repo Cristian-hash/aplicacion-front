@@ -22,12 +22,20 @@ data class AsistenciaRegisterRequest(
     val fullName: String
 )
 
+// Nuevo DTO para capturar la respuesta del registro
+@Serializable
+data class RegisterResultResponse(
+    val message: String,
+    val status: String
+)
+
 // Backend: AsistenciaViewDto
 // Uso: Lo que recibimos en el Historial -> GET /history
 @Serializable
 data class AsistenciaResponse(
     val fullName: String,
-    val dni: String
+    val dni: String,
+    val status: String? = "INGRESO" // Agregamos status para el historial
 )
 
 // ==========================================

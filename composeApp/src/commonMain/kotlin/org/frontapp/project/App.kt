@@ -54,7 +54,7 @@ object EduTheme {
 // 2. MODELOS DE DATOS
 // ==================================================================
 data class User(val id: String, val name: String, val dni: String, val email: String, val school: String, val phone: String)
-data class ScanRecord(val id: String, val name: String, val dni: String, val time: String, val type: String)
+data class ScanRecord(val id: String, val name: String, val dni: String, val time: String, val type: String, val status: String = "INGRESO")
 
 // ==================================================================
 // 3. PANTALLAS
@@ -92,7 +92,14 @@ fun AdminScreen(
             try {
                 val historyApi = EduTecApi.obtenerHistorial()
                 val newList = historyApi.map { 
-                    ScanRecord(id = Random.nextLong().toString(), name = it.fullName, dni = it.dni, time = "Ahora", type = "API") 
+                    ScanRecord(
+                        id = Random.nextLong().toString(), 
+                        name = it.fullName, 
+                        dni = it.dni, 
+                        time = "Ahora", 
+                        type = "API",
+                        status = it.status ?: "INGRESO"
+                    ) 
                 }
                 withContext(Dispatchers.Main) {
                     if (scans.size != newList.size) {
@@ -119,19 +126,25 @@ fun AdminScreen(
 
     // REGISTRO OPTIMIZADO
     fun processEntry(user: User, method: String) {
-        val isReentry = scans.any { it.dni == user.dni }
         scope.launch {
             if (isOnline) {
-                val result = EduTecApi.registrarPorDni(user.dni)
+                // Si es QR, enviamos DNI y Nombre para validación completa
+                val result = if (method == "QR") {
+                    EduTecApi.registrarConNombre(user.dni, user.name)
+                } else {
+                    EduTecApi.registrarPorDni(user.dni)
+                }
+
                 if (result.isSuccess) {
+                    val data = result.getOrNull()
                     refreshHistoryFromServer()
-                    feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
+                    feedback = (data?.status?.lowercase() ?: "success") to (data?.message ?: "¡BIENVENIDO!")
                 } else {
                     val errorMsg = result.exceptionOrNull()?.message ?: "ERROR"
                     feedback = "error" to errorMsg
                 }
             } else {
-                pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Sync", method))
+                pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Sync", method, "INGRESO"))
                 feedback = "success" to "GUARDADO OFFLINE"
             }
         }
@@ -181,14 +194,28 @@ fun AdminScreen(
                     Divider(color = Color(0xFFEEEEEE))
                     LazyColumn(contentPadding = PaddingValues(16.dp)) {
                         items(scans, key = { it.id }) { scan ->
-                            Row(modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth().border(1.dp, Color(0xFFEEEEEE), RoundedCornerShape(8.dp)).background(EduTheme.White, RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(modifier = Modifier.size(32.dp).background(Color(0xFFE8F5E9), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Check, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp)) }
+                            val isReentry = scan.status == "REINGRESO"
+                            val bgColor = if (isReentry) EduTheme.WarningBg else EduTheme.White
+                            val borderColor = if (isReentry) EduTheme.Warning else Color(0xFFEEEEEE)
+                            val iconBg = if (isReentry) EduTheme.Warning.copy(alpha = 0.2f) else Color(0xFFE8F5E9)
+                            val iconColor = if (isReentry) EduTheme.WarningText else Color(0xFF2E7D32)
+
+                            Row(modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth().border(1.dp, borderColor, RoundedCornerShape(8.dp)).background(bgColor, RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(32.dp).background(iconBg, CircleShape), contentAlignment = Alignment.Center) { 
+                                    Icon(if(isReentry) Icons.Default.History else Icons.Default.Check, null, tint = iconColor, modifier = Modifier.size(16.dp)) 
+                                }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) { 
                                     Text(scan.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text("DNI: ${scan.dni}", fontSize = 10.sp, color = Color.Gray)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("DNI: ${scan.dni}", fontSize = 10.sp, color = Color.Gray)
+                                        if (isReentry) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("RE-INGRESO", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = EduTheme.WarningText, modifier = Modifier.background(EduTheme.Warning, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp, vertical = 2.dp))
+                                        }
+                                    }
                                 }
-                                Text("OK", fontSize = 10.sp, color = EduTheme.Success, fontWeight = FontWeight.Bold)
+                                Text(if(isReentry) "RE-IN" else "OK", fontSize = 10.sp, color = iconColor, fontWeight = FontWeight.Bold)
                             }
                         }
                         item { Spacer(modifier = Modifier.height(80.dp)) }
@@ -231,9 +258,8 @@ fun AdminScreen(
                                         }
                                         withContext(Dispatchers.Main) {
                                             if (extractedDni != null) {
-                                                val userFound = db.find { it.dni == extractedDni }
-                                                if (userFound != null) processEntry(userFound, "QR")
-                                                else processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
+                                                // Enviamos siempre el nombre extraído del QR para que el backend valide
+                                                processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
                                             } else {
                                                 feedback = "error" to "QR NO RECONOCIDO"
                                             }
@@ -327,11 +353,27 @@ fun AdminScreen(
         if (feedback != null) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.8f)).zIndex(150f).clickable { feedback = null; isProcessing = false }, contentAlignment = Alignment.Center) {
                 val (type, msg) = feedback!!
-                val color = when(type) { "reentry" -> EduTheme.Warning; "error" -> EduTheme.Error; else -> EduTheme.Success }
+                val isReingreso = type == "reingreso" || type == "reentry"
+                val color = when {
+                    isReingreso -> EduTheme.Warning
+                    type == "error" -> EduTheme.Error
+                    else -> EduTheme.Success
+                }
                 Column(modifier = Modifier.width(300.dp).background(Color.White, RoundedCornerShape(24.dp)).border(4.dp, color, RoundedCornerShape(24.dp)).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(if(type=="error") Icons.Default.ErrorOutline else Icons.Default.CheckCircle, null, tint = color, modifier = Modifier.size(64.dp))
+                    Icon(
+                        if(type=="error") Icons.Default.ErrorOutline else if(isReingreso) Icons.Default.History else Icons.Default.CheckCircle, 
+                        null, 
+                        tint = color, 
+                        modifier = Modifier.size(64.dp)
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(msg, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if(type=="error") EduTheme.Error else Color(0xFF1B5E20), textAlign = TextAlign.Center)
+                    Text(
+                        msg, 
+                        fontSize = 20.sp, 
+                        fontWeight = FontWeight.Black, 
+                        color = if(type=="error") EduTheme.Error else if(isReingreso) EduTheme.WarningText else Color(0xFF1B5E20), 
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

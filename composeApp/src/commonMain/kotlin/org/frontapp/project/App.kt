@@ -26,6 +26,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import frontapp.composeapp.generated.resources.Res
+import frontapp.composeapp.generated.resources.logo_app
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -34,6 +36,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.Instant
+import org.jetbrains.compose.resources.painterResource
 
 // Manejo del botón atrás nativo
 @Composable
@@ -210,7 +213,7 @@ fun HistoryScreen(onBack: () -> Unit) {
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = if (isReentry) "DUPLICADO" else "OK",
+                                    text = if (isReentry) "DUPLICADO" else "INGRESÓ",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
                                     color = if (isReentry) EduTheme.Warning else EduTheme.Success
@@ -626,13 +629,14 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            val logo_app = painterResource(Res.drawable.logo_app)
             Surface(
                 modifier = Modifier.size(120.dp),
                 shape = RoundedCornerShape(30.dp),
-                color = EduTheme.BlueAction.copy(0.1f)
+                color = EduTheme.BlueAction
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.AutoAwesome, null, modifier = Modifier.size(60.dp), tint = EduTheme.BlueAction)
+                    Image(painter = logo_app, contentDescription = "Grupo Upgrade", modifier = Modifier.size(60.dp))
                 }
             }
             

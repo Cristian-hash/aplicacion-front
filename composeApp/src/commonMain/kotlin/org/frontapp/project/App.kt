@@ -121,6 +121,9 @@ fun AdminScreen(
     var manualDni by remember { mutableStateOf("") }
     var searchText by remember { mutableStateOf("") }
     var feedback by remember { mutableStateOf<Pair<String, String>?>(null) }
+    
+    // Bloqueo para evitar múltiples lecturas seguidas
+    var isProcessingQr by remember { mutableStateOf(false) }
 
     var editingUser by remember { mutableStateOf<User?>(null) }
     var editDniVal by remember { mutableStateOf("") }
@@ -165,7 +168,6 @@ fun AdminScreen(
 
         scope.launch {
             if (isOnline) {
-                // Usamos siempre registrarPorDni que es el estable
                 val exito = EduTecApi.registrarPorDni(user.dni)
                 if (!exito) pendingQueue.add(newRecord)
             } else {
@@ -197,10 +199,17 @@ fun AdminScreen(
         }
     }
 
-    LaunchedEffect(feedback) { if (feedback != null) { delay(2500); feedback = null } }
+    LaunchedEffect(feedback) { 
+        if (feedback != null) { 
+            delay(2500) 
+            feedback = null 
+            // Liberamos el escáner un poco después de que desaparece el feedback
+            isProcessingQr = false
+        } 
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader)) {
-        // BARRA OFFLINE
+        // BARRA STATUS
         Column(modifier = Modifier.zIndex(100f).fillMaxWidth()) {
             if (!isOnline) {
                 Box(modifier = Modifier.fillMaxWidth().background(EduTheme.BrandRed).padding(4.dp), contentAlignment = Alignment.Center) {
@@ -242,6 +251,7 @@ fun AdminScreen(
             }
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                // Header...
                 Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF111111)).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(32.dp).background(EduTheme.BrandRed, CircleShape), contentAlignment = Alignment.Center) { Text("ST", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
@@ -258,24 +268,26 @@ fun AdminScreen(
                                 reductionFactor = 1f,
                                 onCameraStatusChanged = { _, _ -> },
                                 onQrDetected = { qrContent ->
-                                    // PARSEAMOS EL JSON DEL QR
+                                    // SI YA ESTAMOS PROCESANDO UN QR, IGNORAMOS LAS DEMÁS LECTURAS
+                                    if (isProcessingQr) return@CameraPreview
+                                    
+                                    isProcessingQr = true // Bloqueamos nuevas lecturas
+
                                     var extractedDni = qrContent
                                     var extractedName = "Desconocido"
 
                                     try {
-                                        // Intentamos decodificar el JSON {"dni":"...", "fullName":"..."}
                                         val data = Json.decodeFromString<AsistenciaRegisterRequest>(qrContent)
                                         extractedDni = data.dni
                                         extractedName = data.fullName
                                     } catch (e: Exception) {
-                                        // Si no es JSON, asumimos que qrContent es el DNI directo
+                                        // No es JSON, asumimos DNI directo
                                     }
 
                                     val userFound = db.find { it.dni == extractedDni }
                                     if (userFound != null) {
                                         processEntry(userFound, "QR")
                                     } else {
-                                        // Si no está en la DB local, usamos lo extraído del QR
                                         processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
                                     }
                                 }
@@ -283,7 +295,7 @@ fun AdminScreen(
                             Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) { Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center)) }
                         }
                     } else {
-                        // ... (Resto del código manual se mantiene igual)
+                        // Manual UI...
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }

@@ -17,7 +17,7 @@ object EduTecApi {
     // private const val BASE_URL = "http://10.0.2.2:8080/api/edutec"
 
     // Usamos HTTPS porque es un dominio web seguro
-    private const val BASE_URL = "http://api.edutec.grupoupgrade.com.pe/api/edutec"
+    private const val BASE_URL = "https://api.edutec.grupoupgrade.com.pe/api/edutec"
     // -------------------------------------------------------------------------
 
     // 1. Configuración del Cliente HTTP (El navegador interno de la app)

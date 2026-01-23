@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 import kotlin.random.Random
 
 // ==================================================================
-// 1.0 SISTEMA DE DISEÑO
+// 1. SISTEMA DE DISEÑO
 // ==================================================================
 object EduTheme {
     val BrandRed = Color(0xFFCF0A2C)
@@ -43,35 +43,21 @@ object EduTheme {
     val Warning = Color(0xFFFFC107)
     val WarningText = Color(0xFF856404)
     val WarningBg = Color(0xFFFFF3CD)
-    val BlueAction = Color(0xFF1976D2) // El azul de tus botones
+    val BlueAction = Color(0xFF1976D2)
 }
 
 // ==================================================================
-// 2.0 MODELOS DE DATOS
+// 2. MODELOS DE DATOS (ADAPTADOS A MONGODB)
 // ==================================================================
-data class User(val id: Long, val name: String, val dni: String, val email: String, val school: String, val phone: String)
-data class ScanRecord(val id: Long, val name: String, val dni: String, val time: String, val type: String)
+// NOTA: Cambiamos 'id' de Long a String porque MongoDB usa IDs de texto.
+data class User(val id: String, val name: String, val dni: String, val email: String, val school: String, val phone: String)
+data class ScanRecord(val id: String, val name: String, val dni: String, val time: String, val type: String)
 
-val INITIAL_DB = listOf(
-    User(1, "Juan Perez", "12345678", "juan@test.com", "Universidad Nacional", "999888777"),
-    User(2, "Maria Gomez", "87654321", "maria@test.com", "Instituto Tecnológico", "999111222")
-)
-
-// ==================================================================
-// 3.0 LÓGICA DE RED (CONEXIÓN REAL)
-// ==================================================================
-suspend fun enviarAInternetReal(record: ScanRecord): Boolean {
-    return try {
-        println("📡 ENVIANDO A LA NUBE: ${record.name}")
-        delay(1000)
-        true
-    } catch (e: Exception) {
-        false
-    }
-}
+// DB Inicial vacía (se llenará desde el servidor)
+val INITIAL_DB = emptyList<User>()
 
 // ==================================================================
-// 4.0 COMPONENTES UI REUTILIZABLES
+// 3. COMPONENTES UI REUTILIZABLES
 // ==================================================================
 @Composable
 fun EduInput(label: String, value: String, onValueChange: (String) -> Unit, icon: ImageVector, placeholder: String = "", isNumber: Boolean = false) {
@@ -88,7 +74,7 @@ fun EduInput(label: String, value: String, onValueChange: (String) -> Unit, icon
 }
 
 // ==================================================================
-// 5.0 PANTALLAS PRINCIPALES
+// 4. PANTALLAS PRINCIPALES
 // ==================================================================
 
 @Composable
@@ -112,14 +98,15 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
 
 @Composable
 fun StudentRegisterScreen(onBack: () -> Unit, onRegister: (User) -> Unit) {
+    // Pantalla simple de registro (puedes expandirla si la necesitas)
     Box(Modifier.fillMaxSize().background(Color.White)) {
-        Text("Pantalla de Registro (Código abreviado)", Modifier.align(Alignment.Center))
+        Text("Registro de Estudiante", Modifier.align(Alignment.Center))
         Button(onClick = onBack, Modifier.align(Alignment.TopStart).padding(16.dp)) { Text("Volver") }
     }
 }
 
-// --- PANTALLA DE ADMIN (CON PANEL DESLIZABLE) ---
-@OptIn(ExperimentalMaterial3Api::class) // Necesario para el BottomSheet
+// --- PANTALLA DE ADMIN (INTEGRADA CON API) ---
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminScreen(
     onBack: () -> Unit,
@@ -140,62 +127,103 @@ fun AdminScreen(
     var searchText by remember { mutableStateOf("") }
     var feedback by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    // Estados Edición
     var editingUser by remember { mutableStateOf<User?>(null) }
     var editDniVal by remember { mutableStateOf("") }
 
-    // Estado del panel deslizable (Sheet)
     val scaffoldState = rememberBottomSheetScaffoldState()
 
-    // Sincronización automática
-    LaunchedEffect(isOnline) {
-        if (isOnline && pendingQueue.isNotEmpty()) {
-            val itemsToSync = pendingQueue.toList()
-            itemsToSync.forEach { enviarAInternetReal(it) }
-            pendingQueue.clear()
+    // 1. CARGA INICIAL DE DATOS (API REAL)
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try {
+                // a) Cargar Usuarios para el Buscador
+                val usersApi = EduTecApi.obtenerUsuarios()
+                db.clear()
+                db.addAll(usersApi.map { User(it.id, it.fullName, it.dni, "", "", "") })
+
+                // b) Cargar Historial "En Vivo"
+                val historyApi = EduTecApi.obtenerHistorial()
+                scans.clear()
+                scans.addAll(historyApi.map { ScanRecord(Random.nextLong().toString(), it.fullName, it.dni, "Registrado", "API") })
+            } catch (e: Exception) {
+                println("Error cargando datos iniciales: ${e.message}")
+            }
         }
     }
 
-    // --- PROCESAMIENTO CENTRAL ---
+    // 2. SINCRONIZACIÓN AUTOMÁTICA
+    LaunchedEffect(isOnline) {
+        if (isOnline && pendingQueue.isNotEmpty()) {
+            val itemsToSync = pendingQueue.toList()
+            // Intentamos enviar los pendientes
+            itemsToSync.forEach { record ->
+                val exito = if(record.type == "QR") EduTecApi.registrarPorQr(record.dni, record.name)
+                else EduTecApi.registrarPorDni(record.dni)
+                if(exito) pendingQueue.remove(record)
+            }
+        }
+    }
+
+    // --- LÓGICA DE REGISTRO INTEGRADA ---
     fun processEntry(user: User, method: String) {
         val isReentry = scans.any { it.dni == user.dni }
         val type = if (isReentry) "Re-ingreso" else method
-        val newRecord = ScanRecord(Random.nextLong(), user.name, user.dni, "10:30 AM", type)
+        val newRecord = ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Ahora", type)
 
+        // 1. Agregar visualmente (Optimista)
         onAddScan(newRecord)
 
+        // 2. Enviar a Backend Real
         scope.launch {
+            var exito = false
             if (isOnline) {
-                if (!enviarAInternetReal(newRecord)) pendingQueue.add(newRecord)
+                exito = if (method == "QR") {
+                    EduTecApi.registrarPorQr(user.dni, user.name)
+                } else {
+                    EduTecApi.registrarPorDni(user.dni)
+                }
+
+                if (!exito) pendingQueue.add(newRecord) // Si falló la API, guardar
             } else {
-                pendingQueue.add(newRecord)
+                pendingQueue.add(newRecord) // Si no hay red, guardar
             }
+
+            // Feedback basado en la lógica local por ahora (el API puede devolver 409 Conflict si ya existe)
+            feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
         }
-        feedback = if (isReentry) "reentry" to "RE-INGRESO AUTORIZADO" else "success" to "INGRESO EXITOSO"
 
         manualDni = ""
         searchText = ""
         editingUser = null
     }
 
-    // Guardar Edición
+    // LÓGICA DE EDICIÓN (PUT REAL)
     fun saveUserDni() {
         editingUser?.let { user ->
-            val index = db.indexOfFirst { it.id == user.id }
-            if (index != -1) {
-                val newUser = user.copy(dni = editDniVal)
-                db[index] = newUser
-                processEntry(newUser, "Corrección")
+            scope.launch {
+                if (isOnline) {
+                    val exito = EduTecApi.corregirUsuario(user.id, editDniVal)
+                    if (exito) {
+                        // Actualizar localmente
+                        val index = db.indexOfFirst { it.id == user.id }
+                        if (index != -1) {
+                            val newUser = user.copy(dni = editDniVal)
+                            db[index] = newUser
+                            processEntry(newUser, "Corrección")
+                        }
+                    } else {
+                        // Manejo de error de edición
+                    }
+                }
             }
         }
     }
 
     LaunchedEffect(feedback) { if (feedback != null) { delay(2500); feedback = null } }
 
-    // --- ESTRUCTURA PRINCIPAL (Z-Stack) ---
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader)) {
 
-        // 1. BARRA OFFLINE (Siempre arriba de todo)
+        // BARRA OFFLINE
         Column(modifier = Modifier.zIndex(100f).fillMaxWidth()) {
             if (!isOnline) {
                 Box(modifier = Modifier.fillMaxWidth().background(EduTheme.BrandRed).padding(4.dp), contentAlignment = Alignment.Center) {
@@ -209,26 +237,19 @@ fun AdminScreen(
             }
         }
 
-        // 2. EL ANDAMIO CON HOJA DESLIZABLE
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
-            sheetPeekHeight = 180.dp, // Altura inicial (bajito)
+            sheetPeekHeight = 180.dp,
             sheetContainerColor = EduTheme.White,
             containerColor = EduTheme.DarkHeader,
-            // --- CONTENIDO DE LA HOJA DESLIZABLE ---
             sheetContent = {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 400.dp)) {
-                    // Manija Gris
                     Box(modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp).width(40.dp).height(4.dp).background(Color.LightGray, CircleShape))
-
-                    // Header de la lista
                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Aforo: ${scans.size}", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 12.sp)
                         Text("EN VIVO", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32), fontSize = 10.sp, modifier = Modifier.background(Color(0xFFE8F5E9), CircleShape).padding(horizontal = 8.dp, vertical = 2.dp))
                     }
                     Divider(color = Color(0xFFEEEEEE))
-
-                    // LISTA DE REGISTROS (Ahora deslizable)
                     LazyColumn(contentPadding = PaddingValues(16.dp)) {
                         items(scans) { scan ->
                             Row(modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth().border(1.dp, if(scan.type=="Re-ingreso") EduTheme.Warning else Color(0xFFEEEEEE), RoundedCornerShape(8.dp)).background(if(scan.type=="Re-ingreso") EduTheme.WarningBg else EduTheme.White, RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -238,15 +259,12 @@ fun AdminScreen(
                                 Text(scan.time, fontSize = 12.sp, color = Color.Gray)
                             }
                         }
-                        // Espacio extra al final
                         item { Spacer(modifier = Modifier.height(80.dp)) }
                     }
                 }
             }
         ) { paddingValues ->
-            // --- CONTENIDO PRINCIPAL (Fondo Oscuro) ---
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-
                 // HEADER
                 Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF111111)).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -257,10 +275,9 @@ fun AdminScreen(
                     Button(onClick = onBack, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(28.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { Text("Salir", fontSize = 10.sp) }
                 }
 
-                // CUERPO (Cámara / Manual)
                 Box(modifier = Modifier.weight(1f)) {
                     if (mode == "camera") {
-                        // === CÁMARA ===
+                        // CÁMARA
                         Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                             CameraPreview(
                                 reductionFactor = 1f,
@@ -268,33 +285,27 @@ fun AdminScreen(
                                 onQrDetected = { qrCode ->
                                     val userFound = db.find { it.dni == qrCode }
                                     if (userFound != null) { processEntry(userFound, "QR") }
-                                    else { processEntry(User(0, "Desconocido", qrCode, "", "", ""), "QR-Error") }
+                                    else { processEntry(User("0", "Desconocido", qrCode, "", "", ""), "QR-Error") }
                                 }
                             )
-                            Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) {
-                                Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center))
-                            }
+                            Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) { Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center)) }
                         }
                     } else {
-                        // === MANUAL ===
+                        // MANUAL
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                            // TABS
                             Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }
                                 Button(onClick = { manualTab = "search" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="search") EduTheme.BlueAction else Color.Transparent)) { Text("Corregir / Buscar", fontSize = 12.sp) }
                             }
-
                             Spacer(modifier = Modifier.height(16.dp))
 
                             if (manualTab == "quick") {
-                                // --- TAB 1: VALIDACIÓN 8 DÍGITOS ---
                                 Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF232323))) {
                                     Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                         Icon(Icons.Default.Bolt, null, tint = EduTheme.BlueAction, modifier = Modifier.size(48.dp))
                                         Text("Ingreso Directo", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                         Text("Validar entrada por DNI (8 dígitos)", color = Color.Gray, fontSize = 12.sp)
                                         Spacer(modifier = Modifier.height(24.dp))
-
                                         OutlinedTextField(
                                             value = manualDni,
                                             onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) manualDni = it },
@@ -305,27 +316,24 @@ fun AdminScreen(
                                             modifier = Modifier.fillMaxWidth()
                                         )
                                         Spacer(modifier = Modifier.height(16.dp))
-
                                         Button(
                                             onClick = {
                                                 if (manualDni.length == 8) {
-                                                    val user = db.find { it.dni == manualDni } ?: User(0, "Invitado", manualDni, "", "", "")
+                                                    val user = db.find { it.dni == manualDni } ?: User("0", "Invitado", manualDni, "", "", "")
                                                     processEntry(user, "Manual")
                                                 }
                                             },
                                             enabled = manualDni.length == 8,
-                                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction, disabledContainerColor = Color.Gray)
                                         ) { Text("MARCAR ASISTENCIA", fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             } else {
-                                // --- TAB 2: BÚSQUEDA POR DNI ---
                                 Column {
                                     OutlinedTextField(
                                         value = searchText,
-                                        onValueChange = { if(it.all { c -> c.isDigit() }) searchText = it },
+                                        onValueChange = { if(it.all {c->c.isDigit()}) searchText = it },
                                         leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
                                         placeholder = { Text("Buscar por DNI...", color = Color.Gray) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -365,7 +373,6 @@ fun AdminScreen(
                     }
                 }
 
-                // MENU INFERIOR (Botones abajo)
                 Row(modifier = Modifier.background(Color(0xFF111111)).padding(8.dp)) {
                     Button(onClick = { mode = "camera" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if(mode=="camera") Color(0xFF333333) else Color.Transparent)) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.CameraAlt, null); Text("Cámara", fontSize = 10.sp) } }
                     Button(onClick = { mode = "manual" }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if(mode=="manual") EduTheme.BlueAction.copy(0.3f) else Color.Transparent)) { Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Search, null, tint = if(mode=="manual") Color(0xFF64B5F6) else Color.White); Text("Manual", fontSize = 10.sp, color = if(mode=="manual") Color(0xFF64B5F6) else Color.White) } }
@@ -373,12 +380,8 @@ fun AdminScreen(
             }
         }
 
-        // FEEDBACK OVERLAY (Popups)
         if (feedback != null) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.8f)).zIndex(150f).clickable { feedback = null },
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.8f)).zIndex(150f).clickable { feedback = null }, contentAlignment = Alignment.Center) {
                 val (type, msg) = feedback!!
                 val color = if (type == "reentry") EduTheme.Warning else EduTheme.Success
                 Column(modifier = Modifier.width(300.dp).background(Color.White, RoundedCornerShape(24.dp)).border(4.dp, color, RoundedCornerShape(24.dp)).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -392,18 +395,13 @@ fun AdminScreen(
 }
 
 // ==================================================================
-// 5.0 ENTRY POINT (APP)
+// 5. ENTRY POINT (APP)
 // ==================================================================
 @Composable
 fun App() {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
-            primary = EduTheme.BrandRed,
-            background = EduTheme.GrayBg,
-            surface = EduTheme.White
-        )
-    ) {
+    MaterialTheme(colorScheme = lightColorScheme(primary = EduTheme.BrandRed, background = EduTheme.GrayBg, surface = EduTheme.White)) {
         var currentScreen by remember { mutableStateOf("home") }
+        // Inicializamos vacío, la carga real sucede en el LaunchedEffect del AdminScreen
         val db = remember { mutableStateListOf<User>().apply { addAll(INITIAL_DB) } }
         val scans = remember { mutableStateListOf<ScanRecord>() }
 

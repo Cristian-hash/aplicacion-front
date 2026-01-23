@@ -24,8 +24,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
 
@@ -58,25 +60,6 @@ data class ScanRecord(val id: String, val name: String, val dni: String, val tim
 // 3. PANTALLAS
 // ==================================================================
 
-@Composable
-fun HomeScreen(onNavigate: (String) -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(EduTheme.White)) {
-        Box(modifier = Modifier.offset(y = (-50).dp).size(300.dp).background(EduTheme.BrandRed.copy(alpha = 0.1f), CircleShape).blur(radius = 50.dp).align(Alignment.TopCenter))
-        Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(Icons.Rounded.QrCode2, contentDescription = null, modifier = Modifier.size(80.dp), tint = EduTheme.BrandRed)
-            Text("EduTec", fontSize = 48.sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp, color = EduTheme.BrandBlack)
-            Spacer(modifier = Modifier.height(48.dp))
-            OutlinedButton(onClick = { onNavigate("admin") }, modifier = Modifier.fillMaxWidth().height(80.dp), shape = RoundedCornerShape(20.dp), border = BorderStroke(2.dp, Color(0xFFEEEEEE)), colors = ButtonDefaults.outlinedButtonColors(containerColor = EduTheme.White)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Box(modifier = Modifier.size(45.dp).background(EduTheme.GrayBg, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.VpnKey, null, tint = EduTheme.BrandBlack) }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column { Text("Soy Staff", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = EduTheme.BrandBlack); Text("Ingreso directo al sistema", fontSize = 12.sp, color = Color.Gray) }
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminScreen(
@@ -94,37 +77,47 @@ fun AdminScreen(
     var manualDni by remember { mutableStateOf("") }
     var searchText by remember { mutableStateOf("") }
     var feedback by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var isProcessingQr by remember { mutableStateOf(false) }
+    
+    // Control de flujo para evitar bloqueos
+    var isProcessing by remember { mutableStateOf(false) }
 
     var editingUser by remember { mutableStateOf<User?>(null) }
     var editDniVal by remember { mutableStateOf("") }
 
     val scaffoldState = rememberBottomSheetScaffoldState()
 
+    // REFRESH OPTIMIZADO: Ejecutado en background
     fun refreshHistoryFromServer() {
-        scope.launch {
+        scope.launch(Dispatchers.Default) {
             try {
                 val historyApi = EduTecApi.obtenerHistorial()
-                scans.clear()
-                scans.addAll(historyApi.map { 
-                    ScanRecord(id = Random.nextLong().toString(), name = it.fullName, dni = it.dni, time = "Hoy", type = "API") 
-                })
+                val newList = historyApi.map { 
+                    ScanRecord(id = Random.nextLong().toString(), name = it.fullName, dni = it.dni, time = "Ahora", type = "API") 
+                }
+                withContext(Dispatchers.Main) {
+                    if (scans.size != newList.size) {
+                        scans.clear()
+                        scans.addAll(newList)
+                    }
+                }
             } catch (e: Exception) {}
         }
     }
 
     LaunchedEffect(Unit) {
-        scope.launch {
+        scope.launch(Dispatchers.Default) {
             try {
                 val usersApi = EduTecApi.obtenerUsuarios()
-                db.clear()
-                db.addAll(usersApi.map { User(it.id, it.fullName, it.dni, "", "", "") })
+                withContext(Dispatchers.Main) {
+                    db.clear()
+                    db.addAll(usersApi.map { User(it.id, it.fullName, it.dni, "", "", "") })
+                }
             } catch (e: Exception) {}
         }
         refreshHistoryFromServer()
     }
 
-    // LÓGICA DE REGISTRO CORREGIDA PARA MANEJAR RESULT
+    // REGISTRO OPTIMIZADO
     fun processEntry(user: User, method: String) {
         val isReentry = scans.any { it.dni == user.dni }
         scope.launch {
@@ -134,22 +127,17 @@ fun AdminScreen(
                     refreshHistoryFromServer()
                     feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
                 } else {
-                    val errorMsg = result.exceptionOrNull()?.message ?: "ERROR DE CONEXIÓN"
+                    val errorMsg = result.exceptionOrNull()?.message ?: "ERROR"
                     feedback = "error" to errorMsg
-                    // Si el error NO es que el usuario no existe, lo mandamos a la cola pendiente
-                    if (errorMsg != "EL USUARIO NO EXISTE") {
-                        pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Pendiente", method))
-                    }
                 }
             } else {
-                pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Pendiente", method))
-                feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
+                pendingQueue.add(ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Sync", method))
+                feedback = "success" to "GUARDADO OFFLINE"
             }
         }
-        manualDni = ""
-        searchText = ""
     }
 
+    // GUARDAR CORRECCIÓN
     fun saveUserDniCorrection() {
         editingUser?.let { user ->
             scope.launch {
@@ -157,24 +145,23 @@ fun AdminScreen(
                     val exito = EduTecApi.corregirUsuario(user.id, editDniVal)
                     if (exito) {
                         val index = db.indexOfFirst { it.id == user.id }
-                        if (index != -1) {
-                            db[index] = db[index].copy(dni = editDniVal)
-                        }
+                        if (index != -1) db[index] = db[index].copy(dni = editDniVal)
                         feedback = "success" to "DNI CORREGIDO"
                         editingUser = null
                     } else {
-                        feedback = "error" to "ERROR AL CORREGIR"
+                        feedback = "error" to "ERROR AL GUARDAR"
                     }
                 }
             }
         }
     }
 
+    // RESET DE ESTADO RÁPIDO
     LaunchedEffect(feedback) { 
         if (feedback != null) { 
-            delay(2500) 
+            delay(1500) // Feedback más corto para agilidad
             feedback = null 
-            isProcessingQr = false
+            isProcessing = false
         } 
     }
 
@@ -193,7 +180,7 @@ fun AdminScreen(
                     }
                     Divider(color = Color(0xFFEEEEEE))
                     LazyColumn(contentPadding = PaddingValues(16.dp)) {
-                        items(scans) { scan ->
+                        items(scans, key = { it.id }) { scan ->
                             Row(modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth().border(1.dp, Color(0xFFEEEEEE), RoundedCornerShape(8.dp)).background(EduTheme.White, RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Box(modifier = Modifier.size(32.dp).background(Color(0xFFE8F5E9), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Check, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp)) }
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -227,27 +214,30 @@ fun AdminScreen(
                                 reductionFactor = 1f,
                                 onCameraStatusChanged = { _, _ -> },
                                 onQrDetected = { qrContent ->
-                                    if (isProcessingQr) return@CameraPreview
-                                    var extractedDni: String? = null
-                                    var extractedName = "Invitado"
-                                    try {
-                                        val data = Json.decodeFromString<AsistenciaRegisterRequest>(qrContent)
-                                        extractedDni = data.dni
-                                        extractedName = data.fullName
-                                    } catch (e: Exception) {
-                                        if (qrContent.length == 8 && qrContent.all { it.isDigit() }) {
-                                            extractedDni = qrContent
-                                        }
-                                    }
+                                    if (isProcessing) return@CameraPreview
+                                    isProcessing = true // Bloqueo instantáneo
 
-                                    if (extractedDni != null) {
-                                        isProcessingQr = true 
-                                        val userFound = db.find { it.dni == extractedDni }
-                                        if (userFound != null) processEntry(userFound, "QR")
-                                        else processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
-                                    } else {
-                                        isProcessingQr = true
-                                        feedback = "error" to "QR NO RECONOCIDO"
+                                    scope.launch(Dispatchers.Default) {
+                                        var extractedDni: String? = null
+                                        var extractedName = "Invitado"
+                                        try {
+                                            val data = Json.decodeFromString<AsistenciaRegisterRequest>(qrContent)
+                                            extractedDni = data.dni
+                                            extractedName = data.fullName
+                                        } catch (e: Exception) {
+                                            if (qrContent.length == 8 && qrContent.all { it.isDigit() }) {
+                                                extractedDni = qrContent
+                                            }
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            if (extractedDni != null) {
+                                                val userFound = db.find { it.dni == extractedDni }
+                                                if (userFound != null) processEntry(userFound, "QR")
+                                                else processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
+                                            } else {
+                                                feedback = "error" to "QR NO RECONOCIDO"
+                                            }
+                                        }
                                     }
                                 }
                             )
@@ -257,14 +247,8 @@ fun AdminScreen(
                         // Modo manual
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(12.dp)).padding(4.dp)) {
-                                Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }
-                                Button(onClick = { manualTab = "search" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="search") EduTheme.BlueAction else Color.Transparent)) { 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp), tint = Color.White)
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Corregir / Buscar", fontSize = 12.sp) 
-                                    }
-                                }
+                                Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }
+                                Button(onClick = { manualTab = "search" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="search") EduTheme.BlueAction else Color.Transparent)) { Text("Corregir / Buscar", fontSize = 12.sp) }
                             }
                             Spacer(modifier = Modifier.height(16.dp))
                             if (manualTab == "quick") {
@@ -286,7 +270,7 @@ fun AdminScreen(
                                         Button(onClick = { if (manualDni.length == 8) {
                                             val user = db.find { it.dni == manualDni } ?: User("0", "Invitado", manualDni, "", "", "")
                                             processEntry(user, "Manual")
-                                        }}, enabled = manualDni.length == 8, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction, disabledContainerColor = Color.Gray)) { Text("MARCAR ASISTENCIA", fontWeight = FontWeight.Bold) }
+                                        }}, enabled = manualDni.length == 8, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction)) { Text("MARCAR ASISTENCIA", fontWeight = FontWeight.Bold) }
                                     }
                                 }
                             } else {
@@ -298,7 +282,7 @@ fun AdminScreen(
                                         placeholder = { Text("Buscar por DNI...", color = Color.Gray) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                         modifier = Modifier.fillMaxWidth(),
-                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF232323), unfocusedContainerColor = Color(0xFF232323), focusedBorderColor = EduTheme.BlueAction, unfocusedBorderColor = Color.Gray, focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                                        colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Color(0xFF232323), unfocusedContainerColor = Color(0xFF232323), focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     LazyColumn(modifier = Modifier.weight(1f)) {
@@ -306,16 +290,9 @@ fun AdminScreen(
                                         items(results) { user ->
                                             Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(bottom = 8.dp)) {
                                                 if (editingUser?.id == user.id) {
-                                                    // VISTA DE EDICIÓN
                                                     Column(modifier = Modifier.padding(12.dp)) {
-                                                        Text("CORREGIR DNI", color = EduTheme.BlueAction, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                                        OutlinedTextField(
-                                                            value = editDniVal,
-                                                            onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) editDniVal = it },
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                                                        )
+                                                        Text("CORREGIR DNI", color = EduTheme.BlueAction, fontSize = 10.sp)
+                                                        OutlinedTextField(value = editDniVal, onValueChange = { if (it.length <= 8 && it.all { c -> c.isDigit() }) editDniVal = it }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                                                         Row(modifier = Modifier.padding(top = 8.dp)) {
                                                             Button(onClick = { editingUser = null }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) { Text("Cancelar") }
                                                             Spacer(modifier = Modifier.width(8.dp))
@@ -323,19 +300,11 @@ fun AdminScreen(
                                                         }
                                                     }
                                                 } else {
-                                                    // VISTA NORMAL
                                                     Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                                        Column(modifier = Modifier.weight(1f)) { 
-                                                            Text(user.name, color = Color.White, fontWeight = FontWeight.Bold)
-                                                            Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp) 
-                                                        }
-                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                            IconButton(onClick = { editingUser = user; editDniVal = user.dni }) {
-                                                                Icon(Icons.Default.Edit, "Corregir", tint = Color.LightGray, modifier = Modifier.size(24.dp))
-                                                            }
-                                                            Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) { 
-                                                                Text("Entrar", fontSize = 10.sp) 
-                                                            }
+                                                        Column(modifier = Modifier.weight(1f)) { Text(user.name, color = Color.White, fontWeight = FontWeight.Bold); Text("DNI: ${user.dni}", color = Color.Gray, fontSize = 12.sp) }
+                                                        Row {
+                                                            IconButton(onClick = { editingUser = user; editDniVal = user.dni }) { Icon(Icons.Default.Edit, "Corregir", tint = Color.LightGray, modifier = Modifier.size(24.dp)) }
+                                                            Button(onClick = { processEntry(user, "Search") }, colors = ButtonDefaults.buttonColors(containerColor = EduTheme.BlueAction), modifier = Modifier.height(35.dp)) { Text("Entrar", fontSize = 10.sp) }
                                                         }
                                                     }
                                                 }
@@ -356,23 +325,32 @@ fun AdminScreen(
         }
 
         if (feedback != null) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.8f)).zIndex(150f).clickable { feedback = null }, contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(0.8f)).zIndex(150f).clickable { feedback = null; isProcessing = false }, contentAlignment = Alignment.Center) {
                 val (type, msg) = feedback!!
-                val color = when(type) {
-                    "reentry" -> EduTheme.Warning
-                    "error" -> EduTheme.Error
-                    else -> EduTheme.Success
-                }
-                val icon = when(type) {
-                    "reentry" -> Icons.Default.Replay
-                    "error" -> Icons.Default.ErrorOutline
-                    else -> Icons.Default.CheckCircle
-                }
-                
+                val color = when(type) { "reentry" -> EduTheme.Warning; "error" -> EduTheme.Error; else -> EduTheme.Success }
                 Column(modifier = Modifier.width(300.dp).background(Color.White, RoundedCornerShape(24.dp)).border(4.dp, color, RoundedCornerShape(24.dp)).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(icon, null, tint = color, modifier = Modifier.size(64.dp))
+                    Icon(if(type=="error") Icons.Default.ErrorOutline else Icons.Default.CheckCircle, null, tint = color, modifier = Modifier.size(64.dp))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(msg, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if(type=="reentry") EduTheme.WarningText else if(type=="error") EduTheme.Error else Color(0xFF1B5E20), textAlign = TextAlign.Center)
+                    Text(msg, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if(type=="error") EduTheme.Error else Color(0xFF1B5E20), textAlign = TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(onNavigate: (String) -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(EduTheme.White)) {
+        Box(modifier = Modifier.offset(y = (-50).dp).size(300.dp).background(EduTheme.BrandRed.copy(alpha = 0.1f), CircleShape).blur(radius = 50.dp).align(Alignment.TopCenter))
+        Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Rounded.QrCode2, contentDescription = null, modifier = Modifier.size(80.dp), tint = EduTheme.BrandRed)
+            Text("EduTec", fontSize = 48.sp, fontWeight = FontWeight.Black, color = EduTheme.BrandBlack)
+            Spacer(modifier = Modifier.height(48.dp))
+            OutlinedButton(onClick = { onNavigate("admin") }, modifier = Modifier.fillMaxWidth().height(80.dp), shape = RoundedCornerShape(20.dp), border = BorderStroke(2.dp, Color(0xFFEEEEEE)), colors = ButtonDefaults.outlinedButtonColors(containerColor = EduTheme.White)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Box(modifier = Modifier.size(45.dp).background(EduTheme.GrayBg, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.VpnKey, null, tint = EduTheme.BrandBlack) }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column { Text("Soy Staff", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = EduTheme.BrandBlack); Text("Ingreso directo al sistema", fontSize = 12.sp, color = Color.Gray) }
                 }
             }
         }

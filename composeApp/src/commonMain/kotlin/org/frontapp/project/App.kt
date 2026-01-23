@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlin.random.Random
 
 // ==================================================================
@@ -47,17 +48,15 @@ object EduTheme {
 }
 
 // ==================================================================
-// 2. MODELOS DE DATOS (ADAPTADOS A MONGODB)
+// 2. MODELOS DE DATOS
 // ==================================================================
-// NOTA: Cambiamos 'id' de Long a String porque MongoDB usa IDs de texto.
 data class User(val id: String, val name: String, val dni: String, val email: String, val school: String, val phone: String)
 data class ScanRecord(val id: String, val name: String, val dni: String, val time: String, val type: String)
 
-// DB Inicial vacía (se llenará desde el servidor)
 val INITIAL_DB = emptyList<User>()
 
 // ==================================================================
-// 3. COMPONENTES UI REUTILIZABLES
+// 3. COMPONENTES UI
 // ==================================================================
 @Composable
 fun EduInput(label: String, value: String, onValueChange: (String) -> Unit, icon: ImageVector, placeholder: String = "", isNumber: Boolean = false) {
@@ -74,7 +73,7 @@ fun EduInput(label: String, value: String, onValueChange: (String) -> Unit, icon
 }
 
 // ==================================================================
-// 4. PANTALLAS PRINCIPALES
+// 4. PANTALLAS
 // ==================================================================
 
 @Composable
@@ -98,14 +97,12 @@ fun HomeScreen(onNavigate: (String) -> Unit) {
 
 @Composable
 fun StudentRegisterScreen(onBack: () -> Unit, onRegister: (User) -> Unit) {
-    // Pantalla simple de registro (puedes expandirla si la necesitas)
     Box(Modifier.fillMaxSize().background(Color.White)) {
         Text("Registro de Estudiante", Modifier.align(Alignment.Center))
         Button(onClick = onBack, Modifier.align(Alignment.TopStart).padding(16.dp)) { Text("Volver") }
     }
 }
 
-// --- PANTALLA DE ADMIN (INTEGRADA CON API) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminScreen(
@@ -114,13 +111,11 @@ fun AdminScreen(
     scans: MutableList<ScanRecord>,
     onAddScan: (ScanRecord) -> Unit
 ) {
-    // --- LÓGICA OFFLINE ---
     val scope = rememberCoroutineScope()
     val networkMonitor = remember { getNetworkMonitor() }
     val isOnline by networkMonitor.isConnected.collectAsState(initial = false)
     val pendingQueue = remember { mutableStateListOf<ScanRecord>() }
 
-    // --- ESTADOS DE UI ---
     var mode by remember { mutableStateOf("camera") }
     var manualTab by remember { mutableStateOf("quick") }
     var manualDni by remember { mutableStateOf("") }
@@ -132,63 +127,50 @@ fun AdminScreen(
 
     val scaffoldState = rememberBottomSheetScaffoldState()
 
-    // 1. CARGA INICIAL DE DATOS (API REAL)
+    // Carga inicial
     LaunchedEffect(Unit) {
         scope.launch {
             try {
-                // a) Cargar Usuarios para el Buscador
                 val usersApi = EduTecApi.obtenerUsuarios()
                 db.clear()
                 db.addAll(usersApi.map { User(it.id, it.fullName, it.dni, "", "", "") })
 
-                // b) Cargar Historial "En Vivo"
                 val historyApi = EduTecApi.obtenerHistorial()
                 scans.clear()
                 scans.addAll(historyApi.map { ScanRecord(Random.nextLong().toString(), it.fullName, it.dni, "Registrado", "API") })
             } catch (e: Exception) {
-                println("Error cargando datos iniciales: ${e.message}")
+                println("Error cargando datos: ${e.message}")
             }
         }
     }
 
-    // 2. SINCRONIZACIÓN AUTOMÁTICA
+    // Sincronización
     LaunchedEffect(isOnline) {
         if (isOnline && pendingQueue.isNotEmpty()) {
             val itemsToSync = pendingQueue.toList()
-            // Intentamos enviar los pendientes
             itemsToSync.forEach { record ->
-                val exito = if(record.type == "QR") EduTecApi.registrarPorQr(record.dni, record.name)
-                else EduTecApi.registrarPorDni(record.dni)
+                val exito = EduTecApi.registrarPorDni(record.dni)
                 if(exito) pendingQueue.remove(record)
             }
         }
     }
 
-    // --- LÓGICA DE REGISTRO INTEGRADA ---
+    // Lógica de registro unificada
     fun processEntry(user: User, method: String) {
         val isReentry = scans.any { it.dni == user.dni }
         val type = if (isReentry) "Re-ingreso" else method
         val newRecord = ScanRecord(Random.nextLong().toString(), user.name, user.dni, "Ahora", type)
 
-        // 1. Agregar visualmente (Optimista)
         onAddScan(newRecord)
 
-        // 2. Enviar a Backend Real
         scope.launch {
-            var exito = false
             if (isOnline) {
-                exito = if (method == "QR") {
-                    EduTecApi.registrarPorQr(user.dni, user.name)
-                } else {
-                    EduTecApi.registrarPorDni(user.dni)
-                }
-
-                if (!exito) pendingQueue.add(newRecord) // Si falló la API, guardar
+                // Usamos siempre registrarPorDni que es el estable
+                val exito = EduTecApi.registrarPorDni(user.dni)
+                if (!exito) pendingQueue.add(newRecord)
             } else {
-                pendingQueue.add(newRecord) // Si no hay red, guardar
+                pendingQueue.add(newRecord)
             }
-
-            // Feedback basado en la lógica local por ahora (el API puede devolver 409 Conflict si ya existe)
             feedback = if (isReentry) "reentry" to "REGISTRADO (RE-INGRESO)" else "success" to "¡BIENVENIDO!"
         }
 
@@ -197,22 +179,18 @@ fun AdminScreen(
         editingUser = null
     }
 
-    // LÓGICA DE EDICIÓN (PUT REAL)
     fun saveUserDni() {
         editingUser?.let { user ->
             scope.launch {
                 if (isOnline) {
                     val exito = EduTecApi.corregirUsuario(user.id, editDniVal)
                     if (exito) {
-                        // Actualizar localmente
                         val index = db.indexOfFirst { it.id == user.id }
                         if (index != -1) {
                             val newUser = user.copy(dni = editDniVal)
                             db[index] = newUser
                             processEntry(newUser, "Corrección")
                         }
-                    } else {
-                        // Manejo de error de edición
                     }
                 }
             }
@@ -222,7 +200,6 @@ fun AdminScreen(
     LaunchedEffect(feedback) { if (feedback != null) { delay(2500); feedback = null } }
 
     Box(modifier = Modifier.fillMaxSize().background(EduTheme.DarkHeader)) {
-
         // BARRA OFFLINE
         Column(modifier = Modifier.zIndex(100f).fillMaxWidth()) {
             if (!isOnline) {
@@ -265,7 +242,6 @@ fun AdminScreen(
             }
         ) { paddingValues ->
             Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-                // HEADER
                 Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF111111)).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(32.dp).background(EduTheme.BrandRed, CircleShape), contentAlignment = Alignment.Center) { Text("ST", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
@@ -277,21 +253,37 @@ fun AdminScreen(
 
                 Box(modifier = Modifier.weight(1f)) {
                     if (mode == "camera") {
-                        // CÁMARA
                         Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                             CameraPreview(
                                 reductionFactor = 1f,
                                 onCameraStatusChanged = { _, _ -> },
-                                onQrDetected = { qrCode ->
-                                    val userFound = db.find { it.dni == qrCode }
-                                    if (userFound != null) { processEntry(userFound, "QR") }
-                                    else { processEntry(User("0", "Desconocido", qrCode, "", "", ""), "QR-Error") }
+                                onQrDetected = { qrContent ->
+                                    // PARSEAMOS EL JSON DEL QR
+                                    var extractedDni = qrContent
+                                    var extractedName = "Desconocido"
+
+                                    try {
+                                        // Intentamos decodificar el JSON {"dni":"...", "fullName":"..."}
+                                        val data = Json.decodeFromString<AsistenciaRegisterRequest>(qrContent)
+                                        extractedDni = data.dni
+                                        extractedName = data.fullName
+                                    } catch (e: Exception) {
+                                        // Si no es JSON, asumimos que qrContent es el DNI directo
+                                    }
+
+                                    val userFound = db.find { it.dni == extractedDni }
+                                    if (userFound != null) {
+                                        processEntry(userFound, "QR")
+                                    } else {
+                                        // Si no está en la DB local, usamos lo extraído del QR
+                                        processEntry(User("0", extractedName, extractedDni, "", "", ""), "QR")
+                                    }
                                 }
                             )
                             Box(modifier = Modifier.size(280.dp).border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(24.dp))) { Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(EduTheme.BrandRed).align(Alignment.Center)) }
                         }
                     } else {
-                        // MANUAL
+                        // ... (Resto del código manual se mantiene igual)
                         Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 Button(onClick = { manualTab = "quick" }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(0.dp), colors = ButtonDefaults.buttonColors(containerColor = if(manualTab=="quick") EduTheme.BlueAction else Color.Transparent)) { Text("Ingreso Rápido", fontSize = 12.sp) }
@@ -394,14 +386,10 @@ fun AdminScreen(
     }
 }
 
-// ==================================================================
-// 5. ENTRY POINT (APP)
-// ==================================================================
 @Composable
 fun App() {
     MaterialTheme(colorScheme = lightColorScheme(primary = EduTheme.BrandRed, background = EduTheme.GrayBg, surface = EduTheme.White)) {
         var currentScreen by remember { mutableStateOf("home") }
-        // Inicializamos vacío, la carga real sucede en el LaunchedEffect del AdminScreen
         val db = remember { mutableStateListOf<User>().apply { addAll(INITIAL_DB) } }
         val scans = remember { mutableStateListOf<ScanRecord>() }
 

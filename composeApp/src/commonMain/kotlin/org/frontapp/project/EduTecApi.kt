@@ -10,58 +10,56 @@ import kotlinx.serialization.json.Json
 
 object EduTecApi {
 
-    // -------------------------------------------------------------------------
-    // ⚠️ CONFIGURACIÓN DE LA IP (¡CAMBIA ESTO!)
-    // -------------------------------------------------------------------------
-    // OPCIÓN A: Si usas el EMULADOR de Android Studio:
-    // private const val BASE_URL = "http://10.0.2.2:8080/api/edutec"
-
-    // Usamos HTTPS porque es un dominio web seguro
     private const val BASE_URL = "https://api.edutec.grupoupgrade.com.pe/api/edutec"
-    // -------------------------------------------------------------------------
 
-    // 1. Configuración del Cliente HTTP (El navegador interno de la app)
     private val client = HttpClient {
         install(ContentNegotiation) {
             json(Json {
-                ignoreUnknownKeys = true // Si el back manda campos extra, no explota
+                ignoreUnknownKeys = true
                 prettyPrint = true
                 isLenient = true
             })
         }
     }
 
-    // =========================================================================
-    // 2. FUNCIONES DEL SERVIDOR (ENDPOINTS)
-    // =========================================================================
-
-    // --- A. REGISTRAR ASISTENCIA (CÁMARA QR) ---
-    // POST /register
+    // --- A. REGISTRAR ASISTENCIA (QR) ---
+    // Se usa el endpoint /register que pide DNI y Nombre Completo
     suspend fun registrarPorQr(dni: String, fullName: String): Boolean {
-        val response = client.post("$BASE_URL/register") {
-            contentType(ContentType.Application.Json)
-            setBody(AsistenciaRegisterRequest(dni, fullName))
+        return try {
+            val response = client.post("$BASE_URL/register") {
+                contentType(ContentType.Application.Json)
+                setBody(AsistenciaRegisterRequest(dni, fullName))
+            }
+            // Aceptamos 201 Created o 200 OK
+            response.status == HttpStatusCode.Created || response.status == HttpStatusCode.OK
+        } catch (e: Exception) {
+            println("❌ Error en registrarPorQr: ${e.message}")
+            false
         }
-        return response.status == HttpStatusCode.Created // Devuelve true si fue 201
     }
 
-    // --- B. REGISTRAR ASISTENCIA (MANUAL DNI) ---
-    // POST /register-by-dni
+    // --- B. REGISTRAR ASISTENCIA (DNI MANUAL) ---
+    // Se usa el endpoint /register-by-dni que solo pide el DNI
     suspend fun registrarPorDni(dni: String): Boolean {
-        val response = client.post("$BASE_URL/register-by-dni") {
-            contentType(ContentType.Application.Json)
-            setBody(AsistenciaDniRequest(dni))
+        return try {
+            val response = client.post("$BASE_URL/register-by-dni") {
+                contentType(ContentType.Application.Json)
+                setBody(AsistenciaDniRequest(dni))
+            }
+            // Aceptamos 201 Created o 200 OK
+            response.status == HttpStatusCode.Created || response.status == HttpStatusCode.OK
+        } catch (e: Exception) {
+            println("❌ Error en registrarPorDni: ${e.message}")
+            false
         }
-        return response.status == HttpStatusCode.Created
     }
 
     // --- C. OBTENER HISTORIAL (EN VIVO) ---
-    // GET /history
     suspend fun obtenerHistorial(): List<AsistenciaResponse> {
         return try {
             val response = client.get("$BASE_URL/history")
             if (response.status == HttpStatusCode.OK) {
-                response.body() // Convierte el JSON a List<AsistenciaResponse>
+                response.body()
             } else {
                 emptyList()
             }
@@ -71,8 +69,7 @@ object EduTecApi {
         }
     }
 
-    // --- D. DESCARGAR BASE DE DATOS DE USUARIOS (PARA EL BUSCADOR) ---
-    // GET /get-all-registrations
+    // --- D. DESCARGAR BASE DE DATOS DE USUARIOS ---
     suspend fun obtenerUsuarios(): List<UserResponse> {
         return try {
             val response = client.get("$BASE_URL/get-all-registrations")
@@ -87,14 +84,17 @@ object EduTecApi {
         }
     }
 
-    // --- E. CORREGIR USUARIO (ZONA 3 - LÁPIZ) ---
-    // PUT /edit-register/{id}
+    // --- E. CORREGIR USUARIO ---
     suspend fun corregirUsuario(id: String, dniNuevo: String): Boolean {
-        val response = client.put("$BASE_URL/edit-register/$id") {
-            contentType(ContentType.Application.Json)
-            // Solo enviamos el DNI porque es lo que queremos corregir
-            setBody(UserUpdateRequest(dni = dniNuevo))
+        return try {
+            val response = client.put("$BASE_URL/edit-register/$id") {
+                contentType(ContentType.Application.Json)
+                setBody(UserUpdateRequest(dni = dniNuevo))
+            }
+            response.status == HttpStatusCode.OK
+        } catch (e: Exception) {
+            println("❌ Error corrigiendo usuario: ${e.message}")
+            false
         }
-        return response.status == HttpStatusCode.OK
     }
 }

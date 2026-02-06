@@ -153,15 +153,18 @@ fun HistoryScreen(onBack: () -> Unit) {
 
                                 if (!posText.isNullOrBlank() || !compText.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         if (!posText.isNullOrBlank()) {
-                                            Icon(Icons.Default.Work, null, modifier = Modifier.size(10.dp), tint = Color.Gray)
-                                            Text(" $posText", color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            if (!compText.isNullOrBlank()) Spacer(Modifier.width(8.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Work, null, modifier = Modifier.size(10.dp), tint = Color.Gray)
+                                                Text(" $posText", color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
                                         }
                                         if (!compText.isNullOrBlank()) {
-                                            Icon(Icons.Default.Business, null, modifier = Modifier.size(10.dp), tint = Color.Gray)
-                                            Text(" $compText", color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Business, null, modifier = Modifier.size(10.dp), tint = Color.Gray)
+                                                Text(" $compText", color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
                                         }
                                     }
                                 }
@@ -337,12 +340,15 @@ fun AdminScreen(onBack: () -> Unit, db: MutableList<User>, onNavigateToHistory: 
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(user.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     Text("DNI: ${user.dni}", color = EduTheme.TextSecondary, fontSize = 12.sp)
-                                                    Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                        Icon(Icons.Default.Work, null, modifier = Modifier.size(12.dp), tint = Color.Gray)
-                                                        Text(" ${user.position}", color = Color.Gray, fontSize = 11.sp)
-                                                        Spacer(Modifier.width(8.dp))
-                                                        Icon(Icons.Default.Business, null, modifier = Modifier.size(12.dp), tint = Color.Gray)
-                                                        Text(" ${user.company}", color = Color.Gray, fontSize = 11.sp)
+                                                    Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(Icons.Default.Work, null, modifier = Modifier.size(12.dp), tint = Color.Gray)
+                                                            Text(" ${user.position}", color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(Icons.Default.Business, null, modifier = Modifier.size(12.dp), tint = Color.Gray)
+                                                            Text(" ${user.company}", color = Color.Gray, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                        }
                                                     }
                                                 }
                                                 IconButton(onClick = { editingUser = user; editDniVal = user.dni }) { Icon(Icons.Default.Edit, null, tint = Color.LightGray, modifier = Modifier.size(18.dp)) }
